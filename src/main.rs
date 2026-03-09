@@ -1,5 +1,6 @@
 mod app;
 mod config;
+mod icons;
 mod news;
 mod system;
 mod theme;
