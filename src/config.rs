@@ -3,8 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
-use dirs::config_dir;
-
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub struct Config {
@@ -72,6 +70,10 @@ pub struct UiConfig {
     pub refresh_rate_ms: u64,
     #[serde(default = "default_theme")]
     pub theme: String,
+    #[serde(default = "default_preferred_layout")]
+    pub preferred_layout: String,
+    #[serde(default)]
+    pub nerd_font: Option<bool>,
 }
 
 impl Default for UiConfig {
@@ -79,6 +81,8 @@ impl Default for UiConfig {
         Self {
             refresh_rate_ms: default_refresh_rate(),
             theme: default_theme(),
+            preferred_layout: default_preferred_layout(),
+            nerd_font: None,
         }
     }
 }
@@ -88,12 +92,35 @@ fn default_refresh_rate() -> u64 {
 }
 
 fn default_theme() -> String {
-    "default".to_string()
+    "matte-black".to_string()
+}
+
+fn default_preferred_layout() -> String {
+    "auto".to_string()
 }
 
 impl Config {
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
+
+        #[cfg(target_os = "macos")]
+        {
+            if !config_path.exists() {
+                if let Some(old_dir) = dirs::config_dir() {
+                    let old_path = old_dir.join("glance").join("config.toml");
+                    if old_path.exists() {
+                        if let Some(parent) = config_path.parent() {
+                            fs::create_dir_all(parent)?;
+                        }
+                        fs::copy(&old_path, &config_path)?;
+                        eprintln!(
+                            "Notice: migrated config from {:?} to {:?}",
+                            old_path, config_path
+                        );
+                    }
+                }
+            }
+        }
 
         if config_path.exists() {
             let contents = fs::read_to_string(&config_path)
@@ -114,13 +141,36 @@ impl Config {
         Ok(())
     }
 
-    fn config_path() -> Result<PathBuf> {
-        match config_dir() {
-            Some(dir) => Ok(dir.join("glance").join("config.toml")),
-            None => Ok(std::env::current_dir()
-                .context("Failed to get current directory")?
-                .join("config.toml")),
+    fn config_dir() -> Result<PathBuf> {
+        // Check XDG_CONFIG_HOME first (must be absolute)
+        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            let path = PathBuf::from(&xdg);
+            if path.is_absolute() {
+                return Ok(path);
+            }
         }
+
+        // Platform-specific fallback
+        #[cfg(unix)]
+        {
+            if let Some(home) = dirs::home_dir() {
+                return Ok(home.join(".config"));
+            }
+        }
+
+        #[cfg(windows)]
+        {
+            if let Some(dir) = dirs::config_dir() {
+                return Ok(dir);
+            }
+        }
+
+        // Final fallback: current working directory
+        std::env::current_dir().context("Failed to get current directory")
+    }
+
+    fn config_path() -> Result<PathBuf> {
+        Ok(Self::config_dir()?.join("glance").join("config.toml"))
     }
 
     fn create_default(config_path: &PathBuf) -> Result<Self> {
@@ -145,5 +195,23 @@ mod tests {
             "https://api.open-meteo.com/v1/forecast"
         );
         assert!(!config.news.feeds.is_empty());
+    }
+
+    #[test]
+    fn test_default_theme_is_matte_black() {
+        let config = Config::default();
+        assert_eq!(config.ui.theme, "matte-black");
+    }
+
+    #[test]
+    fn test_default_layout_is_auto() {
+        let config = Config::default();
+        assert_eq!(config.ui.preferred_layout, "auto");
+    }
+
+    #[test]
+    fn test_nerd_font_default_is_none() {
+        let config = Config::default();
+        assert!(config.ui.nerd_font.is_none());
     }
 }
