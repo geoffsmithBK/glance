@@ -2,6 +2,7 @@ mod app;
 mod config;
 mod news;
 mod system;
+mod theme;
 mod ui;
 mod utils;
 mod weather;
