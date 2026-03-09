@@ -1,6 +1,7 @@
 pub mod app;
 pub mod config;
 pub mod icons;
+pub mod layout;
 pub mod news;
 pub mod system;
 pub mod theme;
