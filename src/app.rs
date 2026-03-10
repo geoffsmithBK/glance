@@ -66,6 +66,8 @@ pub struct App {
     pub selected: HashMap<PanelId, usize>,
     pub scroll_offset: HashMap<PanelId, usize>,
     pub location_search: Option<LocationSearch>,
+    pub use_12h: bool,
+    pub use_utc: bool,
 }
 
 impl App {
@@ -105,6 +107,8 @@ impl App {
             selected,
             scroll_offset,
             location_search: None,
+            use_12h: false,
+            use_utc: false,
         };
 
         if needs_location {
@@ -252,12 +256,39 @@ impl App {
         };
     }
 
+    pub fn toggle_ampm(&mut self) {
+        self.use_12h = !self.use_12h;
+    }
+
+    pub fn toggle_utc(&mut self) {
+        self.use_utc = !self.use_utc;
+    }
+
     pub fn time_display(&self) -> String {
-        let now = Local::now();
-        let time = now.format("%H:%M:%S").to_string();
-        let date = now.format("%d %B").to_string();
-        let week = now.format("W%V").to_string();
-        format!("{} \\\\ {} {}", time, date, week)
+        use chrono::Utc;
+
+        let now_local = Local::now();
+        let (time_str, date_str, week_str) = if self.use_utc {
+            let now = Utc::now();
+            let time = if self.use_12h {
+                now.format("%I:%M:%S %p").to_string()
+            } else {
+                now.format("%H:%M:%S").to_string()
+            };
+            let date = now.format("%d %B").to_string();
+            let week = now.format("W%V").to_string();
+            (time, date, format!("{} UTC", week))
+        } else {
+            let time = if self.use_12h {
+                now_local.format("%I:%M:%S %p").to_string()
+            } else {
+                now_local.format("%H:%M:%S").to_string()
+            };
+            let date = now_local.format("%d %B").to_string();
+            let week = now_local.format("W%V").to_string();
+            (time, date, week)
+        };
+        format!("{} \\\\ {} {}", time_str, date_str, week_str)
     }
 
     pub fn news_selected(&self) -> usize {

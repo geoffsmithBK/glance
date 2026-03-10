@@ -26,6 +26,7 @@ pub struct WeatherData {
     pub sunrise: String,
     pub sunset: String,
     pub forecast: Vec<DayForecast>,
+    pub day_summary: String,
 }
 
 impl Default for WeatherData {
@@ -41,8 +42,14 @@ impl Default for WeatherData {
             sunrise: String::new(),
             sunset: String::new(),
             forecast: Vec::new(),
+            day_summary: String::new(),
         }
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct HourlyWeather {
+    weather_code: Vec<u16>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -50,6 +57,8 @@ struct WeatherResponse {
     current: CurrentWeather,
     #[serde(default)]
     daily: Option<DailyWeather>,
+    #[serde(default)]
+    hourly: Option<HourlyWeather>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,7 +111,7 @@ impl WeatherService {
 
         let temp_unit = &self.config.temperature_unit;
         let url = format!(
-            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset&temperature_unit={}&timezone=auto&forecast_days=7",
+            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset&hourly=weather_code&temperature_unit={}&timezone=auto&forecast_days=7",
             self.config.api_url, location.lat, location.lon, temp_unit
         );
 
@@ -173,6 +182,12 @@ impl WeatherService {
             .map(|d| self.parse_forecast(d))
             .unwrap_or_default();
 
+        let day_summary = data
+            .hourly
+            .as_ref()
+            .map(|h| self.build_day_summary(h))
+            .unwrap_or_default();
+
         WeatherData {
             icon,
             temp: current.temperature,
@@ -184,6 +199,7 @@ impl WeatherService {
             sunrise,
             sunset,
             forecast,
+            day_summary,
         }
     }
 
@@ -249,6 +265,85 @@ impl WeatherService {
             85..=86 => "\u{1f328}\u{fe0f}".to_string(),
             95..=99 => "\u{26c8}\u{fe0f}".to_string(),
             _ => "\u{1f319}".to_string(),
+        }
+    }
+
+    fn build_day_summary(&self, hourly: &HourlyWeather) -> String {
+        // Today's hours: indices 0..24
+        let today: Vec<u16> = hourly.weather_code.iter().take(24).copied().collect();
+        if today.len() < 24 {
+            return String::new();
+        }
+
+        let periods = [
+            ("Morning", &today[6..12]),
+            ("Afternoon", &today[12..18]),
+            ("Evening", &today[18..24]),
+            ("Overnight", &today[0..6]),
+        ];
+
+        let mut parts: Vec<String> = Vec::new();
+        let mut last_desc = String::new();
+
+        for (name, hours) in &periods {
+            let code = Self::dominant_code(hours);
+            let desc = Self::short_condition(code);
+            if desc != last_desc {
+                parts.push(format!("{} {}", desc, name.to_lowercase()));
+                last_desc = desc;
+            }
+        }
+
+        // Capitalize first letter
+        if let Some(first) = parts.first_mut() {
+            if let Some(c) = first.get(0..1) {
+                *first = format!("{}{}", c.to_uppercase(), &first[1..]);
+            }
+        }
+
+        parts.join(", ")
+    }
+
+    fn dominant_code(hours: &[u16]) -> u16 {
+        // Find the most common weather code in this period
+        let mut counts = std::collections::HashMap::new();
+        for &code in hours {
+            *counts.entry(code).or_insert(0u32) += 1;
+        }
+        // Return the code with highest count; on tie, prefer worse weather (higher code)
+        counts
+            .into_iter()
+            .max_by_key(|&(code, count)| (count, code))
+            .map(|(code, _)| code)
+            .unwrap_or(0)
+    }
+
+    fn short_condition(code: u16) -> String {
+        match code {
+            0 => "clear".to_string(),
+            1 => "mostly clear".to_string(),
+            2 => "partly cloudy".to_string(),
+            3 => "overcast".to_string(),
+            45 | 48 => "foggy".to_string(),
+            51 | 53 => "light drizzle".to_string(),
+            55 => "drizzle".to_string(),
+            56 | 57 => "freezing drizzle".to_string(),
+            61 => "light rain".to_string(),
+            63 => "rain".to_string(),
+            65 => "heavy rain".to_string(),
+            66 | 67 => "freezing rain".to_string(),
+            71 => "light snow".to_string(),
+            73 => "snow".to_string(),
+            75 => "heavy snow".to_string(),
+            77 => "snow grains".to_string(),
+            80 => "light showers".to_string(),
+            81 => "showers".to_string(),
+            82 => "heavy showers".to_string(),
+            85 => "light snow showers".to_string(),
+            86 => "heavy snow showers".to_string(),
+            95 => "thunderstorm".to_string(),
+            96 | 99 => "thunderstorm with hail".to_string(),
+            _ => "clear".to_string(),
         }
     }
 }

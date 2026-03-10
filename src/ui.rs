@@ -215,7 +215,6 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
-    // Check if location is configured
     if app.config.weather.location.is_none() {
         let msg = Paragraph::new(Line::from(vec![Span::styled(
             "No location configured. Press / to search.",
@@ -227,38 +226,37 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
     }
 
     let weather = &app.weather_data;
-    let mut lines: Vec<Line> = Vec::new();
+
+    // Build top section lines
+    let mut top_lines: Vec<Line> = Vec::new();
 
     // Location name
     if let Some(ref name) = app.config.weather.location_name {
-        lines.push(Line::from(vec![Span::styled(
+        top_lines.push(Line::from(vec![Span::styled(
             name.as_str(),
             Style::default().fg(colors.dim),
         )]));
     }
 
-    // Temperature line
-    lines.push(Line::from(vec![
-        Span::styled(
-            format!("{} {}°{}", weather.icon, weather.temp, weather.unit),
-            Style::default()
-                .fg(colors.weather_accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-    ]));
+    // Temperature
+    top_lines.push(Line::from(vec![Span::styled(
+        format!("{} {}°{}", weather.icon, weather.temp, weather.unit),
+        Style::default()
+            .fg(colors.weather_accent)
+            .add_modifier(Modifier::BOLD),
+    )]));
 
     // Condition
-    lines.push(Line::from(vec![Span::styled(
+    top_lines.push(Line::from(vec![Span::styled(
         &weather.condition,
         Style::default().fg(colors.fg.unwrap_or(Color::White)),
     )]));
 
-    // Blank line
-    lines.push(Line::raw(""));
+    top_lines.push(Line::raw(""));
 
     // Humidity
     if !weather.humidity.is_empty() {
-        lines.push(Line::from(vec![
+        top_lines.push(Line::from(vec![
             Span::styled("Humidity: ", Style::default().fg(colors.dim)),
             Span::styled(
                 format!("{}%", weather.humidity),
@@ -269,7 +267,7 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
 
     // Wind
     if !weather.wind.is_empty() {
-        lines.push(Line::from(vec![
+        top_lines.push(Line::from(vec![
             Span::styled("Wind: ", Style::default().fg(colors.dim)),
             Span::styled(
                 &weather.wind,
@@ -280,69 +278,120 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
 
     // Sunrise / Sunset
     if !weather.sunrise.is_empty() || !weather.sunset.is_empty() {
-        lines.push(Line::from(vec![
+        top_lines.push(Line::from(vec![
             Span::styled(
-                format!("{}\u{2191} {}", app.icons.weather_clear_day, weather.sunrise),
+                format!("{}↑ {}", app.icons.weather_clear_day, weather.sunrise),
                 Style::default().fg(colors.weather_accent),
             ),
             Span::styled("  ", Style::default()),
             Span::styled(
-                format!("{}\u{2193} {}", app.icons.weather_clear_day, weather.sunset),
+                format!("{}↓ {}", app.icons.weather_clear_day, weather.sunset),
                 Style::default().fg(colors.dim),
             ),
         ]));
     }
 
-    // 7-day forecast
-    if !weather.forecast.is_empty() {
-        lines.push(Line::raw(""));
+    // Day summary
+    if !weather.day_summary.is_empty() {
+        top_lines.push(Line::raw(""));
+        // Word-wrap the summary manually into lines that fit the panel width
+        let summary = &weather.day_summary;
+        let max_width = inner.width as usize;
+        let mut current_line = String::new();
+        for word in summary.split_whitespace() {
+            if current_line.is_empty() {
+                current_line = word.to_string();
+            } else if current_line.len() + 1 + word.len() <= max_width {
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                top_lines.push(Line::from(Span::styled(
+                    current_line.clone(),
+                    Style::default().fg(colors.fg.unwrap_or(Color::White)),
+                )));
+                current_line = word.to_string();
+            }
+        }
+        if !current_line.is_empty() {
+            top_lines.push(Line::from(Span::styled(
+                current_line,
+                Style::default().fg(colors.fg.unwrap_or(Color::White)),
+            )));
+        }
+    }
 
-        // Compute how many days we can fit based on panel width
-        // Each column needs ~5 chars minimum (3 for day name + 2 padding)
+    // Build forecast lines (bottom-aligned)
+    let mut forecast_lines: Vec<Line> = Vec::new();
+    if !weather.forecast.is_empty() {
         let col_width = 5usize;
         let max_days = (inner.width as usize / col_width).min(weather.forecast.len()).min(7);
 
         if max_days > 0 {
-            // Day names row
+            // Day names
             let day_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
                 Span::styled(
                     format!("{:<width$}", d.date, width = col_width),
                     Style::default().fg(colors.fg.unwrap_or(Color::White)).add_modifier(Modifier::BOLD),
                 )
             }).collect();
-            lines.push(Line::from(day_spans));
+            forecast_lines.push(Line::from(day_spans));
 
-            // Icons row
+            // Icons
             let icon_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
                 Span::styled(
                     format!("{:<width$}", d.icon, width = col_width),
                     Style::default().fg(colors.fg.unwrap_or(Color::White)),
                 )
             }).collect();
-            lines.push(Line::from(icon_spans));
+            forecast_lines.push(Line::from(icon_spans));
 
-            // High temps row
+            // High temps
             let high_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
                 Span::styled(
-                    format!("{:<width$}", format!("{:.0}\u{00b0}", d.temp_max), width = col_width),
+                    format!("{:<width$}", format!("{:.0}°", d.temp_max), width = col_width),
                     Style::default().fg(colors.weather_accent),
                 )
             }).collect();
-            lines.push(Line::from(high_spans));
+            forecast_lines.push(Line::from(high_spans));
 
-            // Low temps row
+            // Low temps
             let low_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
                 Span::styled(
-                    format!("{:<width$}", format!("{:.0}\u{00b0}", d.temp_min), width = col_width),
+                    format!("{:<width$}", format!("{:.0}°", d.temp_min), width = col_width),
                     Style::default().fg(colors.dim),
                 )
             }).collect();
-            lines.push(Line::from(low_spans));
+            forecast_lines.push(Line::from(low_spans));
         }
     }
 
-    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
-    frame.render_widget(para, inner);
+    // Render top section
+    let forecast_height = forecast_lines.len() as u16;
+    let top_height = inner.height.saturating_sub(forecast_height).saturating_sub(1); // -1 for gap
+
+    if top_height > 0 {
+        let top_area = Rect {
+            x: inner.x,
+            y: inner.y,
+            width: inner.width,
+            height: top_height,
+        };
+        let top_para = Paragraph::new(top_lines).wrap(Wrap { trim: false });
+        frame.render_widget(top_para, top_area);
+    }
+
+    // Render forecast at bottom
+    if forecast_height > 0 && inner.height > forecast_height {
+        let forecast_y = inner.y + inner.height - forecast_height;
+        let forecast_area = Rect {
+            x: inner.x,
+            y: forecast_y,
+            width: inner.width,
+            height: forecast_height,
+        };
+        let forecast_para = Paragraph::new(forecast_lines);
+        frame.render_widget(forecast_para, forecast_area);
+    }
 }
 
 /// Render the news panel as a scrollable list with highlighted selection.
@@ -762,6 +811,14 @@ fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
         Line::from(vec![
             Span::styled("  ?           ", key_style),
             Span::styled("Toggle help", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  m           ", key_style),
+            Span::styled("Toggle 12h/24h time", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  z           ", key_style),
+            Span::styled("Toggle local/UTC", desc_style),
         ]),
         Line::raw(""),
         Line::from(Span::styled("Panel Navigation", header_style)),

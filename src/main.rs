@@ -145,6 +145,8 @@ async fn handle_key(
                 KeyCode::Char('t' | 'T') => app.cycle_theme(),
                 KeyCode::Char('/') => app.start_location_search(),
                 KeyCode::Char('?') => app.toggle_help(),
+                KeyCode::Char('m') => app.toggle_ampm(),
+                KeyCode::Char('z') => app.toggle_utc(),
                 _ => {}
             }
             true
