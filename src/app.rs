@@ -1,6 +1,12 @@
-use crate::config::Config;
+use std::collections::HashMap;
+
+use crate::config::{Config, Location};
+use crate::icons::{self, Icons};
+use crate::layout::LayoutMode;
+use crate::location::LocationSearch;
 use crate::news::{NewsData, NewsService};
 use crate::system::SystemMetrics;
+use crate::theme::Theme;
 use crate::weather::{WeatherData, WeatherService};
 use chrono::Local;
 
@@ -9,21 +15,12 @@ pub enum AppState {
     Running,
     LoadingWeather,
     LoadingNews,
+    LocationSearch,
+    Help,
     EditingConfig,
 }
 
-pub struct App {
-    state: AppState,
-    current_panel: PanelId,
-    config: Config,
-    system: SystemMetrics,
-    weather_data: WeatherData,
-    news_data: NewsData,
-    weather_service: WeatherService,
-    news_service: NewsService,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum PanelId {
     #[default]
     Weather,
@@ -31,13 +28,68 @@ pub enum PanelId {
     System,
 }
 
+impl PanelId {
+    pub fn all() -> &'static [PanelId] {
+        &[PanelId::Weather, PanelId::News, PanelId::System]
+    }
+
+    pub fn next(self) -> Self {
+        match self {
+            PanelId::Weather => PanelId::News,
+            PanelId::News => PanelId::System,
+            PanelId::System => PanelId::Weather,
+        }
+    }
+
+    pub fn prev(self) -> Self {
+        match self {
+            PanelId::Weather => PanelId::System,
+            PanelId::News => PanelId::Weather,
+            PanelId::System => PanelId::News,
+        }
+    }
+}
+
+pub struct App {
+    pub state: AppState,
+    pub current_panel: PanelId,
+    pub config: Config,
+    pub system: SystemMetrics,
+    pub weather_data: WeatherData,
+    pub news_data: NewsData,
+    pub weather_service: WeatherService,
+    pub news_service: NewsService,
+    pub theme: Theme,
+    pub icons: Icons,
+    pub layout: LayoutMode,
+    pub layout_override: Option<LayoutMode>,
+    pub selected: HashMap<PanelId, usize>,
+    pub scroll_offset: HashMap<PanelId, usize>,
+    pub location_search: Option<LocationSearch>,
+}
+
 impl App {
     pub fn new() -> Result<Self, anyhow::Error> {
         let config = Config::load()?;
         let weather_service = WeatherService::new(config.weather.clone());
         let news_service = NewsService::new(config.news.clone());
+        let theme = Theme::from_name(&config.ui.theme);
+        let icons = icons::icons_for_config(config.ui.nerd_font);
+        let layout_override = LayoutMode::from_name(&config.ui.preferred_layout);
 
-        Ok(Self {
+        let mut selected = HashMap::new();
+        selected.insert(PanelId::Weather, 0);
+        selected.insert(PanelId::News, 0);
+        selected.insert(PanelId::System, 0);
+
+        let mut scroll_offset = HashMap::new();
+        scroll_offset.insert(PanelId::Weather, 0);
+        scroll_offset.insert(PanelId::News, 0);
+        scroll_offset.insert(PanelId::System, 0);
+
+        let needs_location = config.weather.location.is_none();
+
+        let mut app = Self {
             state: AppState::Running,
             current_panel: PanelId::Weather,
             config,
@@ -46,7 +98,20 @@ impl App {
             news_data: NewsData::default(),
             weather_service,
             news_service,
-        })
+            theme,
+            icons,
+            layout: LayoutMode::Wide,
+            layout_override,
+            selected,
+            scroll_offset,
+            location_search: None,
+        };
+
+        if needs_location {
+            app.start_location_search();
+        }
+
+        Ok(app)
     }
 
     pub async fn load_data(&mut self) {
@@ -59,47 +124,161 @@ impl App {
         self.state = AppState::Running;
     }
 
-    pub fn state(&self) -> &AppState {
-        &self.state
-    }
-
-    pub fn current_panel(&self) -> PanelId {
-        self.current_panel
-    }
-
-    pub fn system(&self) -> &SystemMetrics {
-        &self.system
-    }
-
-    pub fn weather(&self) -> &WeatherData {
-        &self.weather_data
-    }
-
-    pub fn news(&self) -> &NewsData {
-        &self.news_data
-    }
-
     pub fn update_metrics(&mut self) {
         self.system.refresh();
     }
 
+    pub fn update_layout(&mut self, cols: u16, rows: u16) {
+        self.layout = self
+            .layout_override
+            .unwrap_or_else(|| LayoutMode::auto_select(cols, rows));
+    }
+
+    pub fn cycle_layout(&mut self) {
+        let next = self.layout.next();
+        self.layout = next;
+        self.layout_override = Some(next);
+    }
+
+    pub fn cycle_theme(&mut self) {
+        self.theme = self.theme.next();
+        self.config.ui.theme = self.theme.name().to_string();
+        let _ = self.config.save();
+    }
+
     pub fn cycle_panels(&mut self) {
-        self.current_panel = match self.current_panel {
-            PanelId::Weather => PanelId::News,
-            PanelId::News => PanelId::System,
-            PanelId::System => PanelId::Weather,
+        self.current_panel = self.current_panel.next();
+    }
+
+    pub fn cycle_panels_back(&mut self) {
+        self.current_panel = self.current_panel.prev();
+    }
+
+    pub fn move_up(&mut self) {
+        let sel = self.selected.entry(self.current_panel).or_insert(0);
+        if *sel > 0 {
+            *sel -= 1;
+        }
+    }
+
+    pub fn move_down(&mut self) {
+        let max = self.max_items_for_panel(self.current_panel);
+        let sel = self.selected.entry(self.current_panel).or_insert(0);
+        if max > 0 && *sel < max - 1 {
+            *sel += 1;
+        }
+    }
+
+    pub fn max_items_for_panel(&self, panel: PanelId) -> usize {
+        match panel {
+            PanelId::News => self.news_data.headlines.len(),
+            PanelId::System => 3 + self.system.disk_info().len(),
+            PanelId::Weather => 1,
+        }
+    }
+
+    pub fn selected_headline_url(&self) -> Option<&str> {
+        if self.current_panel != PanelId::News {
+            return None;
+        }
+        let idx = self.news_selected();
+        let headline = self.news_data.headlines.get(idx)?;
+        if headline.link.is_empty() {
+            None
+        } else {
+            Some(&headline.link)
+        }
+    }
+
+    pub fn start_location_search(&mut self) {
+        self.state = AppState::LocationSearch;
+        self.location_search = Some(LocationSearch::new());
+    }
+
+    pub fn cancel_location_search(&mut self) {
+        self.state = AppState::Running;
+        self.location_search = None;
+    }
+
+    pub fn confirm_location(&mut self) -> bool {
+        let result = self
+            .location_search
+            .as_ref()
+            .and_then(|ls| ls.selected_result().cloned());
+
+        if let Some(geo) = result {
+            self.config.weather.location = Some(Location {
+                lat: geo.latitude,
+                lon: geo.longitude,
+            });
+            let _ = self.config.save();
+            self.weather_service = WeatherService::new(self.config.weather.clone());
+            self.state = AppState::Running;
+            self.location_search = None;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn toggle_help(&mut self) {
+        self.state = match self.state {
+            AppState::Help => AppState::Running,
+            AppState::Running => AppState::Help,
+            _ => AppState::Running,
         };
     }
 
     pub fn toggle_config(&mut self) {
         self.state = match self.state {
-            AppState::Running => AppState::EditingConfig,
             AppState::EditingConfig => AppState::Running,
+            AppState::Running => AppState::EditingConfig,
             _ => AppState::Running,
         };
     }
 
     pub fn time_display(&self) -> String {
         Local::now().format("%H:%M:%S").to_string()
+    }
+
+    pub fn news_selected(&self) -> usize {
+        self.selected.get(&PanelId::News).copied().unwrap_or(0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_panel_cycle_forward() {
+        let panel = PanelId::Weather;
+        let panel = panel.next();
+        assert_eq!(panel, PanelId::News);
+        let panel = panel.next();
+        assert_eq!(panel, PanelId::System);
+        let panel = panel.next();
+        assert_eq!(panel, PanelId::Weather);
+    }
+
+    #[test]
+    fn test_panel_cycle_backward() {
+        let panel = PanelId::Weather;
+        let panel = panel.prev();
+        assert_eq!(panel, PanelId::System);
+        let panel = panel.prev();
+        assert_eq!(panel, PanelId::News);
+        let panel = panel.prev();
+        assert_eq!(panel, PanelId::Weather);
+    }
+
+    #[test]
+    fn test_app_state_variants() {
+        let _running = AppState::Running;
+        let _loading_weather = AppState::LoadingWeather;
+        let _loading_news = AppState::LoadingNews;
+        let _location_search = AppState::LocationSearch;
+        let _help = AppState::Help;
+        let _editing_config = AppState::EditingConfig;
     }
 }

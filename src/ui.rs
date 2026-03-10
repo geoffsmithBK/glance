@@ -44,8 +44,8 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     let nav = Paragraph::new(format!(
         "[{}] [{}] [Ctrl+Q]",
-        panel_label(app.current_panel()),
-        if app.state() == &AppState::EditingConfig {
+        panel_label(app.current_panel),
+        if app.state == AppState::EditingConfig {
             "ESC"
         } else {
             "ENTER"
@@ -105,7 +105,7 @@ fn panel_label(id: PanelId) -> &'static str {
 }
 
 fn weather_panel<'a>(app: &'a App) -> Paragraph<'a> {
-    let weather = app.weather();
+    let weather = &app.weather_data;
     let mut lines: Vec<Line> = vec![
         Line::raw(format!("{} {}°{}  ", weather.icon, weather.temp, weather.unit)),
         Line::raw(format!("{}  ", weather.condition)),
@@ -125,7 +125,7 @@ fn weather_panel<'a>(app: &'a App) -> Paragraph<'a> {
 }
 
 fn news_panel<'a>(app: &'a App) -> Paragraph<'a> {
-    let news = app.news();
+    let news = &app.news_data;
     let mut lines = Vec::new();
 
     if news.headlines.is_empty() {
@@ -153,7 +153,7 @@ fn news_panel<'a>(app: &'a App) -> Paragraph<'a> {
 }
 
 fn system_panel<'a>(app: &'a App) -> Paragraph<'a> {
-    let sys = app.system();
+    let sys = &app.system;
     let bar_width = 20;
     let mut lines = Vec::new();
 
