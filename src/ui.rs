@@ -209,6 +209,26 @@ fn panel_block<'a>(app: &'a App, panel: PanelId, title: &'a str) -> Block<'a> {
     block
 }
 
+/// Format a "HH:MM" time string into 12h (h:MM AM/PM) or leave as-is for 24h.
+fn fmt_time(time_str: &str, use_12h: bool) -> String {
+    if !use_12h || time_str.is_empty() {
+        return time_str.to_string();
+    }
+    let mut parts = time_str.splitn(2, ':');
+    if let (Some(h), Some(m)) = (parts.next(), parts.next()) {
+        if let (Ok(h), Ok(m)) = (h.parse::<u32>(), m.parse::<u32>()) {
+            let (period, h12) = match h {
+                0 => ("AM", 12u32),
+                1..=11 => ("AM", h),
+                12 => ("PM", 12),
+                _ => ("PM", h - 12),
+            };
+            return format!("{}:{:02} {}", h12, m, period);
+        }
+    }
+    time_str.to_string()
+}
+
 /// Render the weather panel with themed colors.
 fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
     let colors = app.theme.colors();
@@ -282,12 +302,12 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
     if !weather.sunrise.is_empty() || !weather.sunset.is_empty() {
         top_lines.push(Line::from(vec![
             Span::styled(
-                format!("{}↑ {}", app.icons.weather_clear_day, weather.sunrise),
+                format!("{}↑ {}", app.icons.weather_clear_day, fmt_time(&weather.sunrise, app.use_12h)),
                 Style::default().fg(colors.weather_accent),
             ),
             Span::styled("  ", Style::default()),
             Span::styled(
-                format!("{}↓ {}", app.icons.weather_clear_day, weather.sunset),
+                format!("{}↓ {}", app.icons.weather_clear_day, fmt_time(&weather.sunset, app.use_12h)),
                 Style::default().fg(colors.dim),
             ),
         ]));

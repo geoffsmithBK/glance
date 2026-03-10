@@ -111,9 +111,10 @@ impl WeatherService {
         };
 
         let temp_unit = &self.config.temperature_unit;
+        let wind_unit = if temp_unit == "fahrenheit" { "mph" } else { "kmh" };
         let url = format!(
-            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset&hourly=weather_code&temperature_unit={}&timezone=auto&forecast_days=7",
-            self.config.api_url, location.lat, location.lon, temp_unit
+            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset&hourly=weather_code&temperature_unit={}&wind_speed_unit={}&timezone=auto&forecast_days=7",
+            self.config.api_url, location.lat, location.lon, temp_unit, wind_unit
         );
 
         match self.client.get(&url).send().await {
@@ -140,10 +141,11 @@ impl WeatherService {
             .map(|h| h.to_string())
             .unwrap_or_default();
 
+        let wind_unit_label = if self.config.temperature_unit == "fahrenheit" { "mph" } else { "km/h" };
         let (wind, wind_unit) = if let Some(windspeed) = current.windspeed {
             (
-                format!("{:.0} km/h", windspeed),
-                Some("km/h".to_string()),
+                format!("{:.0} {}", windspeed, wind_unit_label),
+                Some(wind_unit_label.to_string()),
             )
         } else {
             (String::new(), None)
