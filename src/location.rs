@@ -8,6 +8,7 @@ pub struct GeoResult {
     pub name: String,
     pub admin1: Option<String>,
     pub country: String,
+    pub country_code: Option<String>,
     pub latitude: f64,
     pub longitude: f64,
 }
@@ -154,6 +155,7 @@ mod tests {
             name: "Austin".to_string(),
             admin1: Some("Texas".to_string()),
             country: "United States".to_string(),
+            country_code: Some("US".to_string()),
             latitude: 30.2672,
             longitude: -97.7431,
         };
@@ -166,6 +168,7 @@ mod tests {
             name: "Singapore".to_string(),
             admin1: None,
             country: "Singapore".to_string(),
+            country_code: Some("SG".to_string()),
             latitude: 1.3521,
             longitude: 103.8198,
         };
@@ -180,6 +183,7 @@ mod tests {
                 name: "A".to_string(),
                 admin1: None,
                 country: "X".to_string(),
+                country_code: None,
                 latitude: 0.0,
                 longitude: 0.0,
             },
@@ -187,6 +191,7 @@ mod tests {
                 name: "B".to_string(),
                 admin1: None,
                 country: "Y".to_string(),
+                country_code: None,
                 latitude: 0.0,
                 longitude: 0.0,
             },
@@ -223,6 +228,7 @@ mod tests {
             name: "London".to_string(),
             admin1: Some("England".to_string()),
             country: "United Kingdom".to_string(),
+            country_code: Some("GB".to_string()),
             latitude: 51.5074,
             longitude: -0.1278,
         }];

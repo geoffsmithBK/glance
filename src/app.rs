@@ -211,6 +211,21 @@ impl App {
                 lat: geo.latitude,
                 lon: geo.longitude,
             });
+
+            // Auto-detect temperature unit from country code
+            let fahrenheit_countries = ["US", "BS", "KY", "LR", "PW", "FM", "MH"];
+            let temp_unit = if let Some(ref cc) = geo.country_code {
+                if fahrenheit_countries.contains(&cc.as_str()) {
+                    "fahrenheit"
+                } else {
+                    "celsius"
+                }
+            } else {
+                "celsius"
+            };
+            self.config.weather.temperature_unit = temp_unit.to_string();
+            self.config.weather.location_name = Some(geo.display_label());
+
             let _ = self.config.save();
             self.weather_service = WeatherService::new(self.config.weather.clone());
             self.state = AppState::Running;
@@ -238,7 +253,11 @@ impl App {
     }
 
     pub fn time_display(&self) -> String {
-        Local::now().format("%H:%M:%S").to_string()
+        let now = Local::now();
+        let time = now.format("%H:%M:%S").to_string();
+        let date = now.format("%d %B").to_string();
+        let week = now.format("W%V").to_string();
+        format!("{} \\\\ {} {}", time, date, week)
     }
 
     pub fn news_selected(&self) -> usize {

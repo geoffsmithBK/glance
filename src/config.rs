@@ -20,6 +20,14 @@ pub struct WeatherConfig {
     pub api_url: String,
     #[serde(default)]
     pub location: Option<Location>,
+    #[serde(default = "default_temp_unit")]
+    pub temperature_unit: String,
+    #[serde(default)]
+    pub location_name: Option<String>,
+}
+
+fn default_temp_unit() -> String {
+    "celsius".to_string()
 }
 
 impl Default for WeatherConfig {
@@ -27,6 +35,8 @@ impl Default for WeatherConfig {
         Self {
             api_url: default_open_meteo(),
             location: None,
+            temperature_unit: default_temp_unit(),
+            location_name: None,
         }
     }
 }

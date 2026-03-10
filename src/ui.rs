@@ -229,6 +229,14 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
     let weather = &app.weather_data;
     let mut lines: Vec<Line> = Vec::new();
 
+    // Location name
+    if let Some(ref name) = app.config.weather.location_name {
+        lines.push(Line::from(vec![Span::styled(
+            name.as_str(),
+            Style::default().fg(colors.dim),
+        )]));
+    }
+
     // Temperature line
     lines.push(Line::from(vec![
         Span::styled(
@@ -268,6 +276,69 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(colors.fg.unwrap_or(Color::White)),
             ),
         ]));
+    }
+
+    // Sunrise / Sunset
+    if !weather.sunrise.is_empty() || !weather.sunset.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{}\u{2191} {}", app.icons.weather_clear_day, weather.sunrise),
+                Style::default().fg(colors.weather_accent),
+            ),
+            Span::styled("  ", Style::default()),
+            Span::styled(
+                format!("{}\u{2193} {}", app.icons.weather_clear_day, weather.sunset),
+                Style::default().fg(colors.dim),
+            ),
+        ]));
+    }
+
+    // 7-day forecast
+    if !weather.forecast.is_empty() {
+        lines.push(Line::raw(""));
+
+        // Compute how many days we can fit based on panel width
+        // Each column needs ~5 chars minimum (3 for day name + 2 padding)
+        let col_width = 5usize;
+        let max_days = (inner.width as usize / col_width).min(weather.forecast.len()).min(7);
+
+        if max_days > 0 {
+            // Day names row
+            let day_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
+                Span::styled(
+                    format!("{:<width$}", d.date, width = col_width),
+                    Style::default().fg(colors.fg.unwrap_or(Color::White)).add_modifier(Modifier::BOLD),
+                )
+            }).collect();
+            lines.push(Line::from(day_spans));
+
+            // Icons row
+            let icon_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
+                Span::styled(
+                    format!("{:<width$}", d.icon, width = col_width),
+                    Style::default().fg(colors.fg.unwrap_or(Color::White)),
+                )
+            }).collect();
+            lines.push(Line::from(icon_spans));
+
+            // High temps row
+            let high_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
+                Span::styled(
+                    format!("{:<width$}", format!("{:.0}\u{00b0}", d.temp_max), width = col_width),
+                    Style::default().fg(colors.weather_accent),
+                )
+            }).collect();
+            lines.push(Line::from(high_spans));
+
+            // Low temps row
+            let low_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
+                Span::styled(
+                    format!("{:<width$}", format!("{:.0}\u{00b0}", d.temp_min), width = col_width),
+                    Style::default().fg(colors.dim),
+                )
+            }).collect();
+            lines.push(Line::from(low_spans));
+        }
     }
 
     let para = Paragraph::new(lines).wrap(Wrap { trim: false });

@@ -1,8 +1,18 @@
 use crate::config::WeatherConfig;
 use crate::utils::cache::Cache;
+use chrono::NaiveDate;
 use reqwest::Client;
 use serde::Deserialize;
 use std::time::Duration;
+
+#[derive(Debug, Clone)]
+pub struct DayForecast {
+    pub date: String,
+    pub temp_max: f32,
+    pub temp_min: f32,
+    pub icon: String,
+    pub weather_code: u16,
+}
 
 #[derive(Debug, Clone)]
 pub struct WeatherData {
@@ -13,18 +23,24 @@ pub struct WeatherData {
     pub humidity: String,
     pub wind: String,
     pub wind_unit: Option<String>,
+    pub sunrise: String,
+    pub sunset: String,
+    pub forecast: Vec<DayForecast>,
 }
 
 impl Default for WeatherData {
     fn default() -> Self {
         Self {
-            icon: "🌡️".to_string(),
+            icon: "\u{1f321}\u{fe0f}".to_string(),
             temp: 0.0,
             unit: "C".to_string(),
             condition: "Unknown".to_string(),
             humidity: String::new(),
             wind: String::new(),
             wind_unit: None,
+            sunrise: String::new(),
+            sunset: String::new(),
+            forecast: Vec::new(),
         }
     }
 }
@@ -32,6 +48,8 @@ impl Default for WeatherData {
 #[derive(Debug, Deserialize)]
 struct WeatherResponse {
     current: CurrentWeather,
+    #[serde(default)]
+    daily: Option<DailyWeather>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,6 +63,16 @@ struct CurrentWeather {
     #[serde(alias = "wind_speed_10m")]
     windspeed: Option<f32>,
     is_day: Option<u8>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DailyWeather {
+    time: Vec<String>,
+    temperature_2m_max: Vec<f32>,
+    temperature_2m_min: Vec<f32>,
+    weather_code: Vec<u16>,
+    sunrise: Vec<String>,
+    sunset: Vec<String>,
 }
 
 pub struct WeatherService {
@@ -72,9 +100,10 @@ impl WeatherService {
             None => return WeatherData::default(),
         };
 
+        let temp_unit = &self.config.temperature_unit;
         let url = format!(
-            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day",
-            self.config.api_url, location.lat, location.lon
+            "{}?latitude={}&longitude={}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,is_day&daily=temperature_2m_max,temperature_2m_min,weather_code,sunrise,sunset&temperature_unit={}&timezone=auto&forecast_days=7",
+            self.config.api_url, location.lat, location.lon, temp_unit
         );
 
         match self.client.get(&url).send().await {
@@ -116,15 +145,67 @@ impl WeatherService {
             (String::new(), None)
         };
 
+        let unit = if self.config.temperature_unit == "fahrenheit" {
+            "F".to_string()
+        } else {
+            "C".to_string()
+        };
+
+        let (sunrise, sunset) = if let Some(ref daily) = data.daily {
+            let sr = daily
+                .sunrise
+                .first()
+                .map(|s| s.split('T').nth(1).unwrap_or(s).to_string())
+                .unwrap_or_default();
+            let ss = daily
+                .sunset
+                .first()
+                .map(|s| s.split('T').nth(1).unwrap_or(s).to_string())
+                .unwrap_or_default();
+            (sr, ss)
+        } else {
+            (String::new(), String::new())
+        };
+
+        let forecast = data
+            .daily
+            .as_ref()
+            .map(|d| self.parse_forecast(d))
+            .unwrap_or_default();
+
         WeatherData {
             icon,
             temp: current.temperature,
-            unit: "C".to_string(),
+            unit,
             condition: self.get_weather_condition(current.weathercode),
             humidity,
             wind,
             wind_unit,
+            sunrise,
+            sunset,
+            forecast,
         }
+    }
+
+    fn parse_forecast(&self, daily: &DailyWeather) -> Vec<DayForecast> {
+        let mut forecast = Vec::new();
+        for i in 0..daily.time.len().min(7) {
+            let day_name =
+                if let Ok(date) = NaiveDate::parse_from_str(&daily.time[i], "%Y-%m-%d") {
+                    date.format("%a").to_string()
+                } else {
+                    daily.time[i].clone()
+                };
+
+            forecast.push(DayForecast {
+                date: day_name,
+                temp_max: daily.temperature_2m_max[i],
+                temp_min: daily.temperature_2m_min[i],
+                icon: self.get_day_icon(daily.weather_code[i]),
+                weather_code: daily.weather_code[i],
+            });
+        }
+        forecast
     }
 
     fn get_weather_condition(&self, code: u16) -> String {
@@ -143,31 +224,31 @@ impl WeatherService {
 
     fn get_day_icon(&self, code: u16) -> String {
         match code {
-            0 => "☀️".to_string(),
-            1..=2 => "🌤️".to_string(),
-            3 => "⛅".to_string(),
-            45..=48 => "🌫️".to_string(),
-            51..=67 => "🌦️".to_string(),
-            71..=77 => "❄️".to_string(),
-            80..=82 => "🌧️".to_string(),
-            85..=86 => "🌨️".to_string(),
-            95..=99 => "⚡".to_string(),
-            _ => "☀️".to_string(),
+            0 => "\u{2600}\u{fe0f}".to_string(),
+            1..=2 => "\u{1f324}\u{fe0f}".to_string(),
+            3 => "\u{26c5}".to_string(),
+            45..=48 => "\u{1f32b}\u{fe0f}".to_string(),
+            51..=67 => "\u{1f326}\u{fe0f}".to_string(),
+            71..=77 => "\u{2744}\u{fe0f}".to_string(),
+            80..=82 => "\u{1f327}\u{fe0f}".to_string(),
+            85..=86 => "\u{1f328}\u{fe0f}".to_string(),
+            95..=99 => "\u{26a1}".to_string(),
+            _ => "\u{2600}\u{fe0f}".to_string(),
         }
     }
 
     fn get_night_icon(&self, code: u16) -> String {
         match code {
-            0 => "🌙".to_string(),
-            1..=2 => "🌥️".to_string(),
-            3 => "☁️".to_string(),
-            45..=48 => "🌑".to_string(),
-            51..=67 => "🌫️".to_string(),
-            71..=77 => "🌜".to_string(),
-            80..=82 => "🌧️".to_string(),
-            85..=86 => "🌨️".to_string(),
-            95..=99 => "⛈️".to_string(),
-            _ => "🌙".to_string(),
+            0 => "\u{1f319}".to_string(),
+            1..=2 => "\u{1f325}\u{fe0f}".to_string(),
+            3 => "\u{2601}\u{fe0f}".to_string(),
+            45..=48 => "\u{1f311}".to_string(),
+            51..=67 => "\u{1f32b}\u{fe0f}".to_string(),
+            71..=77 => "\u{1f31c}".to_string(),
+            80..=82 => "\u{1f327}\u{fe0f}".to_string(),
+            85..=86 => "\u{1f328}\u{fe0f}".to_string(),
+            95..=99 => "\u{26c8}\u{fe0f}".to_string(),
+            _ => "\u{1f319}".to_string(),
         }
     }
 }
