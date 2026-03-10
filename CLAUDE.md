@@ -41,7 +41,7 @@ src/
 - `App` (app.rs) — Owns all state: config, system metrics, weather/news data, services
 - `AppState` — enum: Running, LoadingWeather, LoadingNews, LocationSearch, Help, EditingConfig
 - `PanelId` — enum: Weather, News, System
-- `Layout` (layout.rs) — enum: Wide, Compact, Tall, Minimal
+- `LayoutMode` (layout.rs) — enum: Wide, Compact, Tall, Minimal
 - `Theme` (theme.rs) — enum: MatteBlack, Dark, Light, Dracula
 - `Icons` (icons.rs) — Nerd font and fallback glyph sets
 - `SystemMetrics` (system.rs) — Wraps sysinfo::System, Disks, Networks
