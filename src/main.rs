@@ -3,6 +3,7 @@ mod browser;
 mod config;
 mod icons;
 mod layout;
+mod location;
 mod news;
 mod system;
 mod theme;
