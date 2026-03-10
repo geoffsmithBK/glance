@@ -59,23 +59,6 @@ cargo run
 
 - [TUI Overhaul Design](docs/plans/2026-03-09-tui-overhaul-design.md) — Responsive layouts, navigation, themes, nerd fonts, location search, system metrics enhancements
 
-## Future Work
+## Planned Work
 
-### UI / Display
-- **Title bar time/date**: make bold, match brightness/lightness of the "GLANCE" app name on the left
-- **3-day forecast mini-chart**: temp range bars per day (sparkline-style) instead of plain numbers
-- **GPU metrics**: platform-specific (Metal on macOS, NVML for NVIDIA, ROCm for AMD)
-
-### Weather
-- **Weather panel nerd font icons**: wire `app.icons.weather_icon()` into the current conditions and forecast rows (currently using emoji fallback strings directly in weather.rs)
-
-### Navigation / Config
-- **Config editor UI**: `AppState::EditingConfig` is stubbed — implement in-TUI editing of feeds, location, theme, layout
-- **Configurable RSS feeds via TUI**: add/remove feeds without touching the TOML file
-
-### System Panel
-- **Per-process memory breakdown**: top-N processes by RAM in system panel (sysinfo supports this)
-
-### New Panels (wtfutil parity / leapfrog)
-- **GitHub panel**: notifications, open PRs, CI status — useful for devs
-- **Calendar panel**: next meeting name + countdown in title bar or dedicated panel
+See [TODOs.md](TODOs.md) for the backlog and ideas.
