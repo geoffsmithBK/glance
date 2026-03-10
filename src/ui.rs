@@ -75,7 +75,9 @@ fn render_top_bar(frame: &mut Frame, app: &App, area: Rect) {
             .border_style(Style::default().fg(colors.panel_border)),
     );
 
-    let mut time_style = Style::default().fg(colors.dim);
+    let mut time_style = Style::default()
+        .fg(colors.title)
+        .add_modifier(Modifier::BOLD);
     if let Some(bg) = colors.bg {
         time_style = time_style.bg(bg);
     }
@@ -240,7 +242,7 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
 
     // Temperature
     top_lines.push(Line::from(vec![Span::styled(
-        format!("{} {}°{}", weather.icon, weather.temp, weather.unit),
+        format!("{} {}°{}", app.icons.weather_icon(weather.weather_code, weather.is_day), weather.temp, weather.unit),
         Style::default()
             .fg(colors.weather_accent)
             .add_modifier(Modifier::BOLD),
@@ -339,7 +341,7 @@ fn render_weather_panel(frame: &mut Frame, app: &App, area: Rect) {
             // Icons
             let icon_spans: Vec<Span> = weather.forecast.iter().take(max_days).map(|d| {
                 Span::styled(
-                    format!("{:<width$}", d.icon, width = col_width),
+                    format!("{:<width$}", app.icons.weather_icon(d.weather_code, true), width = col_width),
                     Style::default().fg(colors.fg.unwrap_or(Color::White)),
                 )
             }).collect();

@@ -10,13 +10,13 @@ pub struct DayForecast {
     pub date: String,
     pub temp_max: f32,
     pub temp_min: f32,
-    pub icon: String,
     pub weather_code: u16,
 }
 
 #[derive(Debug, Clone)]
 pub struct WeatherData {
-    pub icon: String,
+    pub weather_code: u16,
+    pub is_day: bool,
     pub temp: f32,
     pub unit: String,
     pub condition: String,
@@ -32,7 +32,8 @@ pub struct WeatherData {
 impl Default for WeatherData {
     fn default() -> Self {
         Self {
-            icon: "\u{1f321}\u{fe0f}".to_string(),
+            weather_code: 0,
+            is_day: true,
             temp: 0.0,
             unit: "C".to_string(),
             condition: "Unknown".to_string(),
@@ -134,12 +135,6 @@ impl WeatherService {
         let current = data.current;
         let is_day = current.is_day.unwrap_or(1);
 
-        let icon = if is_day == 1 {
-            self.get_day_icon(current.weathercode)
-        } else {
-            self.get_night_icon(current.weathercode)
-        };
-
         let humidity = current
             .relative_humidity
             .map(|h| h.to_string())
@@ -189,7 +184,8 @@ impl WeatherService {
             .unwrap_or_default();
 
         WeatherData {
-            icon,
+            weather_code: current.weathercode,
+            is_day: is_day == 1,
             temp: current.temperature,
             unit,
             condition: self.get_weather_condition(current.weathercode),
@@ -217,7 +213,6 @@ impl WeatherService {
                 date: day_name,
                 temp_max: daily.temperature_2m_max[i],
                 temp_min: daily.temperature_2m_min[i],
-                icon: self.get_day_icon(daily.weather_code[i]),
                 weather_code: daily.weather_code[i],
             });
         }
@@ -235,36 +230,6 @@ impl WeatherService {
             85..=86 => "Snow showers".to_string(),
             95..=99 => "Thunderstorm".to_string(),
             _ => "Unknown".to_string(),
-        }
-    }
-
-    fn get_day_icon(&self, code: u16) -> String {
-        match code {
-            0 => "\u{2600}\u{fe0f}".to_string(),
-            1..=2 => "\u{1f324}\u{fe0f}".to_string(),
-            3 => "\u{26c5}".to_string(),
-            45..=48 => "\u{1f32b}\u{fe0f}".to_string(),
-            51..=67 => "\u{1f326}\u{fe0f}".to_string(),
-            71..=77 => "\u{2744}\u{fe0f}".to_string(),
-            80..=82 => "\u{1f327}\u{fe0f}".to_string(),
-            85..=86 => "\u{1f328}\u{fe0f}".to_string(),
-            95..=99 => "\u{26a1}".to_string(),
-            _ => "\u{2600}\u{fe0f}".to_string(),
-        }
-    }
-
-    fn get_night_icon(&self, code: u16) -> String {
-        match code {
-            0 => "\u{1f319}".to_string(),
-            1..=2 => "\u{1f325}\u{fe0f}".to_string(),
-            3 => "\u{2601}\u{fe0f}".to_string(),
-            45..=48 => "\u{1f311}".to_string(),
-            51..=67 => "\u{1f32b}\u{fe0f}".to_string(),
-            71..=77 => "\u{1f31c}".to_string(),
-            80..=82 => "\u{1f327}\u{fe0f}".to_string(),
-            85..=86 => "\u{1f328}\u{fe0f}".to_string(),
-            95..=99 => "\u{26c8}\u{fe0f}".to_string(),
-            _ => "\u{1f319}".to_string(),
         }
     }
 
