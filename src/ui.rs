@@ -5,7 +5,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Wrap},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Table, Row, Cell, Wrap},
     Frame,
 };
 
@@ -489,10 +489,44 @@ fn render_news_panel(frame: &mut Frame, app: &App, area: Rect) {
 /// Render the system panel with metrics, bars, trends, and optional sparklines.
 fn render_system_panel(frame: &mut Frame, app: &App, area: Rect) {
     let colors = app.theme.colors();
-    let title = format!("{} System", app.icons.panel_system);
+    let title = format!("{} System{}", app.icons.panel_system, if app.show_processes { " (Processes)" } else { " (p to toggle)" });
     let block = panel_block(app, PanelId::System, &title);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+
+    if app.show_processes {
+        let mut rows = Vec::new();
+        for proc in &app.system.top_processes {
+            let style = if proc.cpu_usage > 50.0 {
+                Style::default().fg(Color::Red)
+            } else if proc.cpu_usage > 20.0 {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(colors.fg.unwrap_or(Color::White))
+            };
+
+            rows.push(Row::new(vec![
+                Cell::from(proc.pid.to_string()).style(Style::default().fg(colors.dim)),
+                Cell::from(proc.name.clone()).style(Style::default()),
+                Cell::from(format!("{:.1}%", proc.cpu_usage)).style(style),
+                Cell::from(format_bytes(proc.mem_bytes)).style(Style::default()),
+            ]));
+        }
+
+        let widths = [
+            Constraint::Length(6),
+            Constraint::Min(10),
+            Constraint::Length(7),
+            Constraint::Length(8),
+        ];
+
+        let table = Table::new(rows, widths)
+            .header(Row::new(vec!["PID", "Name", "CPU", "MEM"]).style(Style::default().add_modifier(Modifier::BOLD).fg(colors.system_accent)))
+            .column_spacing(1);
+
+        frame.render_widget(table, inner);
+        return;
+    }
 
     let sys = &app.system;
     let bar_width = 20;

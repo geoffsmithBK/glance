@@ -68,6 +68,7 @@ pub struct App {
     pub location_search: Option<LocationSearch>,
     pub use_12h: bool,
     pub use_utc: bool,
+    pub show_processes: bool,
 }
 
 impl App {
@@ -91,6 +92,8 @@ impl App {
 
         let needs_location = config.weather.location.is_none();
 
+        let show_processes = config.ui.show_processes;
+        
         let mut app = Self {
             state: AppState::Running,
             current_panel: PanelId::Weather,
@@ -109,6 +112,7 @@ impl App {
             location_search: None,
             use_12h: false,
             use_utc: false,
+            show_processes,
         };
 
         if needs_location {
@@ -262,6 +266,10 @@ impl App {
 
     pub fn toggle_utc(&mut self) {
         self.use_utc = !self.use_utc;
+    }
+
+    pub fn toggle_processes(&mut self) {
+        self.show_processes = !self.show_processes;
     }
 
     pub fn time_display(&self) -> String {

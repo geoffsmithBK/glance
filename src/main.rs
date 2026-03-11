@@ -147,6 +147,7 @@ async fn handle_key(
                 KeyCode::Char('?') => app.toggle_help(),
                 KeyCode::Char('m') => app.toggle_ampm(),
                 KeyCode::Char('z') => app.toggle_utc(),
+                KeyCode::Char('p' | 'P') => app.toggle_processes(),
                 _ => {}
             }
             true

@@ -84,6 +84,8 @@ pub struct UiConfig {
     pub preferred_layout: String,
     #[serde(default)]
     pub nerd_font: Option<bool>,
+    #[serde(default)]
+    pub show_processes: bool,
 }
 
 impl Default for UiConfig {
@@ -93,6 +95,7 @@ impl Default for UiConfig {
             theme: default_theme(),
             preferred_layout: default_preferred_layout(),
             nerd_font: None,
+            show_processes: false,
         }
     }
 }

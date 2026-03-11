@@ -1,8 +1,15 @@
 use std::collections::VecDeque;
 use std::time::Instant;
-use sysinfo::{Disks, Networks, System};
+use sysinfo::{Disks, Networks, ProcessesToUpdate, System};
 
 const HISTORY_CAP: usize = 60;
+
+pub struct ProcessInfo {
+    pub pid: u32,
+    pub name: String,
+    pub cpu_usage: f32,
+    pub mem_bytes: u64,
+}
 
 pub struct SystemMetrics {
     system: System,
@@ -14,9 +21,11 @@ pub struct SystemMetrics {
     pub net_tx_rate: f64,
     pub net_rx_history: VecDeque<u64>,
     pub net_tx_history: VecDeque<u64>,
+    pub top_processes: Vec<ProcessInfo>,
     prev_rx: u64,
     prev_tx: u64,
     last_refresh: Instant,
+    last_process_refresh: Instant,
 }
 
 impl SystemMetrics {
@@ -39,9 +48,11 @@ impl SystemMetrics {
             net_tx_rate: 0.0,
             net_rx_history: VecDeque::with_capacity(HISTORY_CAP),
             net_tx_history: VecDeque::with_capacity(HISTORY_CAP),
+            top_processes: Vec::new(),
             prev_rx,
             prev_tx,
             last_refresh: Instant::now(),
+            last_process_refresh: Instant::now(),
         }
     }
 
@@ -88,6 +99,26 @@ impl SystemMetrics {
             self.net_tx_history.pop_front();
         }
         self.net_tx_history.push_back(self.net_tx_rate as u64);
+
+        // Update processes every 2 seconds
+        let process_elapsed = now.duration_since(self.last_process_refresh).as_secs_f64();
+        if process_elapsed >= 2.0 || self.top_processes.is_empty() {
+            self.system.refresh_processes(ProcessesToUpdate::All, true);
+            let mut processes: Vec<_> = self.system.processes().values().collect();
+            // Sort by CPU usage descending
+            processes.sort_by(|a, b| b.cpu_usage().partial_cmp(&a.cpu_usage()).unwrap_or(std::cmp::Ordering::Equal));
+            self.top_processes.clear();
+            for proc in processes.iter().take(10) {
+                self.top_processes.push(ProcessInfo {
+                    pid: proc.pid().as_u32(),
+                    name: proc.name().to_string_lossy().to_string(),
+                    cpu_usage: proc.cpu_usage(),
+                    mem_bytes: proc.memory(),
+                });
+            }
+            self.last_process_refresh = now;
+        }
+
 
         self.prev_rx = cur_rx;
         self.prev_tx = cur_tx;
