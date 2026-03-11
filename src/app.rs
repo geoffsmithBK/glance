@@ -1,6 +1,8 @@
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 use crate::config::{Config, Location};
+use crate::digest::DigestState;
 use crate::icons::{self, Icons};
 use crate::layout::LayoutMode;
 use crate::location::LocationSearch;
@@ -17,6 +19,7 @@ pub enum AppState {
     LoadingNews,
     LocationSearch,
     Help,
+    HelpModal,
     EditingConfig,
     LoadingArticle,
     ReadingArticle { title: String, content: String, scroll: u16, url: String },
@@ -71,6 +74,8 @@ pub struct App {
     pub use_12h: bool,
     pub use_utc: bool,
     pub show_processes: bool,
+    pub digest: DigestState,
+    pub last_digest_refresh: Instant,
 }
 
 impl App {
@@ -115,11 +120,15 @@ impl App {
             use_12h: false,
             use_utc: false,
             show_processes,
+            digest: DigestState::default(),
+            last_digest_refresh: Instant::now(),
         };
 
         if needs_location {
             app.start_location_search();
         }
+
+        app.refresh_digest();
 
         Ok(app)
     }
@@ -132,6 +141,7 @@ impl App {
         self.news_data = self.news_service.fetch().await;
 
         self.state = AppState::Running;
+        self.refresh_digest();
     }
 
     pub async fn load_article(&mut self, url: &str, title: &str) {
@@ -158,6 +168,9 @@ impl App {
 
     pub fn update_metrics(&mut self) {
         self.system.refresh();
+        if self.last_digest_refresh.elapsed() >= Duration::from_secs(1) {
+            self.refresh_digest();
+        }
     }
 
     pub fn update_layout(&mut self, cols: u16, rows: u16) {
@@ -266,6 +279,7 @@ impl App {
             self.weather_service = WeatherService::new(self.config.weather.clone());
             self.state = AppState::Running;
             self.location_search = None;
+            self.refresh_digest();
             true
         } else {
             false
@@ -274,10 +288,16 @@ impl App {
 
     pub fn toggle_help(&mut self) {
         self.state = match self.state {
-            AppState::Help => AppState::Running,
+            AppState::Help | AppState::HelpModal => AppState::Running,
             AppState::Running => AppState::Help,
             _ => AppState::Running,
         };
+    }
+
+    pub fn show_help_modal(&mut self) {
+        if self.state == AppState::Help {
+            self.state = AppState::HelpModal;
+        }
     }
 
     pub fn toggle_config(&mut self) {
@@ -298,6 +318,12 @@ impl App {
 
     pub fn toggle_processes(&mut self) {
         self.show_processes = !self.show_processes;
+        self.refresh_digest();
+    }
+
+    pub fn refresh_digest(&mut self) {
+        self.digest = DigestState::from_app(self);
+        self.last_digest_refresh = Instant::now();
     }
 
     pub fn time_display(&self) -> String {
@@ -365,6 +391,7 @@ mod tests {
         let _loading_news = AppState::LoadingNews;
         let _location_search = AppState::LocationSearch;
         let _help = AppState::Help;
+        let _help_modal = AppState::HelpModal;
         let _editing_config = AppState::EditingConfig;
     }
 }

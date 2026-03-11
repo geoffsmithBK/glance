@@ -1,6 +1,7 @@
 mod app;
 mod browser;
 mod config;
+mod digest;
 mod icons;
 mod layout;
 mod location;
@@ -121,6 +122,15 @@ async fn handle_key(
             handle_location_key(app, code, location_debounce).await
         }
         AppState::Help => {
+            match code {
+                KeyCode::Esc | KeyCode::Char('?') => app.toggle_help(),
+                KeyCode::Enter => app.show_help_modal(),
+                KeyCode::Char('q') => return false,
+                _ => {}
+            }
+            true
+        }
+        AppState::HelpModal => {
             match code {
                 KeyCode::Esc | KeyCode::Char('?') => app.toggle_help(),
                 _ => {}

@@ -8,6 +8,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Sparkline, Table, Row, Cell, Wrap},
     Frame,
 };
+use unicode_width::UnicodeWidthStr;
 
 /// Main render entry point. Called each frame from the event loop.
 pub fn render(frame: &mut Frame, app: &mut App) {
@@ -41,7 +42,7 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     // Overlays on top
     match &app.state {
         AppState::LocationSearch => render_location_overlay(frame, app, size),
-        AppState::Help => render_help_overlay(frame, app, size),
+        AppState::HelpModal => render_help_overlay(frame, app, size),
         AppState::LoadingArticle => render_loading_article_overlay(frame, app, size),
         AppState::ReadingArticle { title, content, scroll, .. } => render_article_overlay(frame, app, size, title, content, *scroll),
         _ => {}
@@ -711,38 +712,205 @@ fn render_system_panel(frame: &mut Frame, app: &App, area: Rect) {
 fn render_status_bar(frame: &mut Frame, app: &App, area: Rect) {
     let colors = app.theme.colors();
 
-    let content = match &app.state {
+    let base_style = Style::default()
+        .fg(colors.fg.unwrap_or(Color::White))
+        .bg(colors.status_bar_bg);
+
+    match &app.state {
         AppState::LocationSearch => {
-            " \u{2191}\u{2193}: select | Enter: confirm | Esc: cancel".to_string()
+            let bar = Paragraph::new(Line::from(vec![Span::styled(
+                " \u{2191}\u{2193}: select | Enter: confirm | Esc: cancel",
+                base_style,
+            )]))
+            .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(bar, area);
         }
-        AppState::Help => " Esc/?: close help".to_string(),
+        AppState::Help => {
+            let bar = Paragraph::new(Line::from(vec![Span::styled(
+                " Tab: panels | \u{2191}\u{2193}/jk: scroll | Enter: full help | L: layout | T: theme | /: location | ?: close | Esc: back | q: quit",
+                base_style,
+            )]))
+            .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(bar, area);
+        }
+        AppState::HelpModal => {
+            let bar = Paragraph::new(Line::from(vec![Span::styled(
+                " Esc: back | ?: close",
+                base_style,
+            )]))
+            .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(bar, area);
+        }
+        AppState::LoadingArticle => {
+            let bar = Paragraph::new(Line::from(vec![Span::styled(
+                " Loading article...",
+                base_style,
+            )]))
+            .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(bar, area);
+        }
+        AppState::ReadingArticle { .. } => {
+            let bar = Paragraph::new(Line::from(vec![Span::styled(
+                " j/k: scroll | Enter: open browser | Esc: close",
+                base_style,
+            )]))
+            .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(bar, area);
+        }
         _ => {
-            let mut s = String::new();
-            // In minimal layout, prepend panel indicator dots
-            if app.layout == LayoutMode::Minimal {
-                for panel in PanelId::all() {
-                    if *panel == app.current_panel {
-                        s.push_str("\u{25CF} "); // ●
-                    } else {
-                        s.push_str("\u{25CB} "); // ○
-                    }
-                }
-                s.push_str(" ");
+            let suffix = status_suffix(area.width as usize);
+            let has_suffix = !suffix.is_empty();
+            let suffix_width = UnicodeWidthStr::width(suffix);
+            let chunks = if has_suffix {
+                Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(suffix_width as u16)])
+                    .split(area)
+            } else {
+                Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Min(0), Constraint::Length(0)])
+                    .split(area)
+            };
+
+            let digest_prefix = if app.layout == LayoutMode::Minimal {
+                minimal_layout_prefix(app)
+            } else {
+                String::new()
+            };
+            let digest_width = chunks[0].width as usize;
+            let prefix_width = UnicodeWidthStr::width(digest_prefix.as_str());
+            let rendered_digest = if digest_width > prefix_width {
+                app.digest.render(digest_width.saturating_sub(prefix_width))
+            } else {
+                String::new()
+            };
+            let left_text = format!("{}{}", digest_prefix, rendered_digest);
+
+            let left = Paragraph::new(Line::from(vec![Span::styled(left_text, base_style)]))
+                .style(Style::default().bg(colors.status_bar_bg));
+            frame.render_widget(left, chunks[0]);
+
+            if has_suffix {
+                let suffix_widget = Paragraph::new(Line::from(vec![Span::styled(
+                    suffix,
+                    Style::default()
+                        .fg(colors.title)
+                        .bg(colors.status_bar_bg)
+                        .add_modifier(Modifier::BOLD),
+                )]))
+                .alignment(Alignment::Right)
+                .style(Style::default().bg(colors.status_bar_bg));
+                frame.render_widget(suffix_widget, chunks[1]);
             }
-            s.push_str("Tab: panels | \u{2191}\u{2193}/jk: scroll | Enter: open | L: layout | T: theme | /: location | ?: help | q: quit");
-            format!(" {}", s)
         }
-    };
+    }
+}
 
-    let bar = Paragraph::new(Line::from(vec![Span::styled(
-        content,
-        Style::default()
-            .fg(colors.fg.unwrap_or(Color::White))
-            .bg(colors.status_bar_bg),
-    )]))
-    .style(Style::default().bg(colors.status_bar_bg));
+fn status_suffix(total_width: usize) -> &'static str {
+    if total_width >= 18 {
+        " ?: keys "
+    } else if total_width >= 8 {
+        " ? "
+    } else {
+        ""
+    }
+}
 
-    frame.render_widget(bar, area);
+fn minimal_layout_prefix(app: &App) -> String {
+    let mut prefix = String::from(" ");
+    for panel in PanelId::all() {
+        if *panel == app.current_panel {
+            prefix.push('\u{25CF}');
+        } else {
+            prefix.push('\u{25CB}');
+        }
+        prefix.push(' ');
+    }
+    prefix
+}
+
+/// Render the help overlay as a centered popup.
+fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
+    let colors = app.theme.colors();
+    let popup = centered_rect(50, 18, area);
+
+    frame.render_widget(Clear, popup);
+
+    let block = Block::default()
+        .title(Span::styled(
+            " Help ",
+            Style::default()
+                .fg(colors.title)
+                .add_modifier(Modifier::BOLD),
+        ))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.active_border))
+        .style(Style::default().bg(colors.bg.unwrap_or(Color::Black)));
+
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+
+    let header_style = Style::default()
+        .fg(colors.title)
+        .add_modifier(Modifier::BOLD);
+    let key_style = Style::default().fg(colors.fg.unwrap_or(Color::White));
+    let desc_style = Style::default().fg(colors.dim);
+
+    let lines = vec![
+        Line::from(Span::styled("Global", header_style)),
+        Line::from(vec![
+            Span::styled("  q           ", key_style),
+            Span::styled("Quit", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  T           ", key_style),
+            Span::styled("Cycle theme", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  L           ", key_style),
+            Span::styled("Cycle layout", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  /           ", key_style),
+            Span::styled("Location search", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  ?           ", key_style),
+            Span::styled("Toggle key legend", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  m           ", key_style),
+            Span::styled("Toggle 12h/24h time", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  z           ", key_style),
+            Span::styled("Toggle local/UTC", desc_style),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled("Panel Navigation", header_style)),
+        Line::from(vec![
+            Span::styled("  Tab         ", key_style),
+            Span::styled("Next panel", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Shift+Tab   ", key_style),
+            Span::styled("Previous panel", desc_style),
+        ]),
+        Line::raw(""),
+        Line::from(Span::styled("News Panel", header_style)),
+        Line::from(vec![
+            Span::styled("  \u{2191}/\u{2193}, j/k   ", key_style),
+            Span::styled("Scroll headlines", desc_style),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter       ", key_style),
+            Span::styled("Read article", desc_style),
+        ]),
+    ];
+
+    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(para, inner);
 }
 
 /// Render the location search overlay as a centered popup.
@@ -819,89 +987,6 @@ fn render_location_overlay(frame: &mut Frame, app: &App, area: Rect) {
         let para = Paragraph::new(lines).wrap(Wrap { trim: false });
         frame.render_widget(para, inner);
     }
-}
-
-/// Render the help overlay as a centered popup.
-fn render_help_overlay(frame: &mut Frame, app: &App, area: Rect) {
-    let colors = app.theme.colors();
-    let popup = centered_rect(50, 18, area);
-
-    frame.render_widget(Clear, popup);
-
-    let block = Block::default()
-        .title(Span::styled(
-            " Help ",
-            Style::default()
-                .fg(colors.title)
-                .add_modifier(Modifier::BOLD),
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors.active_border))
-        .style(Style::default().bg(colors.bg.unwrap_or(Color::Black)));
-
-    let inner = block.inner(popup);
-    frame.render_widget(block, popup);
-
-    let header_style = Style::default()
-        .fg(colors.title)
-        .add_modifier(Modifier::BOLD);
-    let key_style = Style::default().fg(colors.fg.unwrap_or(Color::White));
-    let desc_style = Style::default().fg(colors.dim);
-
-    let lines = vec![
-        Line::from(Span::styled("Global", header_style)),
-        Line::from(vec![
-            Span::styled("  q           ", key_style),
-            Span::styled("Quit", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  T           ", key_style),
-            Span::styled("Cycle theme", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  L           ", key_style),
-            Span::styled("Cycle layout", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  /           ", key_style),
-            Span::styled("Location search", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  ?           ", key_style),
-            Span::styled("Toggle help", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  m           ", key_style),
-            Span::styled("Toggle 12h/24h time", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  z           ", key_style),
-            Span::styled("Toggle local/UTC", desc_style),
-        ]),
-        Line::raw(""),
-        Line::from(Span::styled("Panel Navigation", header_style)),
-        Line::from(vec![
-            Span::styled("  Tab         ", key_style),
-            Span::styled("Next panel", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Shift+Tab   ", key_style),
-            Span::styled("Previous panel", desc_style),
-        ]),
-        Line::raw(""),
-        Line::from(Span::styled("News Panel", header_style)),
-        Line::from(vec![
-            Span::styled("  \u{2191}/\u{2193}, j/k   ", key_style),
-            Span::styled("Scroll headlines", desc_style),
-        ]),
-        Line::from(vec![
-            Span::styled("  Enter       ", key_style),
-            Span::styled("Open in browser", desc_style),
-        ]),
-    ];
-
-    let para = Paragraph::new(lines).wrap(Wrap { trim: false });
-    frame.render_widget(para, inner);
 }
 
 /// Compute a centered rectangle with a maximum width and height.
