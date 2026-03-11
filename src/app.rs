@@ -18,6 +18,8 @@ pub enum AppState {
     LocationSearch,
     Help,
     EditingConfig,
+    LoadingArticle,
+    ReadingArticle { title: String, content: String, scroll: u16, url: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -132,6 +134,28 @@ impl App {
         self.state = AppState::Running;
     }
 
+    pub async fn load_article(&mut self, url: &str, title: &str) {
+        self.state = AppState::LoadingArticle;
+        
+        let jina_url = format!("https://r.jina.ai/{}", url);
+        if let Ok(res) = reqwest::get(&jina_url).await {
+            if res.status().is_success() {
+                if let Ok(content) = res.text().await {
+                    self.state = AppState::ReadingArticle { 
+                        title: title.to_string(), 
+                        content, 
+                        scroll: 0,
+                        url: url.to_string()
+                    };
+                    return;
+                }
+            }
+        }
+        
+        // If it failed, just go back to running state
+        self.state = AppState::Running;
+    }
+
     pub fn update_metrics(&mut self) {
         self.system.refresh();
     }
@@ -185,7 +209,7 @@ impl App {
         }
     }
 
-    pub fn selected_headline_url(&self) -> Option<&str> {
+    pub fn selected_headline(&self) -> Option<(&str, &str)> {
         if self.current_panel != PanelId::News {
             return None;
         }
@@ -194,8 +218,12 @@ impl App {
         if headline.link.is_empty() {
             None
         } else {
-            Some(&headline.link)
+            Some((&headline.title, &headline.link))
         }
+    }
+
+    pub fn selected_headline_url(&self) -> Option<&str> {
+        self.selected_headline().map(|(_, url)| url)
     }
 
     pub fn start_location_search(&mut self) {

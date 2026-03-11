@@ -43,3 +43,45 @@ We want to keep the UI clean and avoid cluttering the visual hierarchy. We can a
 2.  **UI Layout:** Adjust the layout constraints in `ui.rs` to allocate space for the new `Table` widget.
 3.  **Styling:** Apply the current Theme colors (`theme.rs`) to the table headers and create a threshold formatter (green -> yellow -> red) for high CPU/RAM values.
 4.  **Testing:** Run a heavy workload in another terminal (e.g., `cargo build`) and verify the dashboard accurately reflects the `rustc` processes bubbling to the top of the list in real-time.
+
+---
+
+# Implementation Plan: TUI Article Preview (Readability Mode)
+
+**Feature:** When a user presses `Enter` on a news headline, open a modal window within the TUI that displays the plain-text article, stripped of ads and tracking scripts, formatted in clean Markdown.
+
+**Target Demographic:** The focused terminal user who wants to read an article without being context-switched out of their workflow into a visually noisy web browser.
+
+## 1. Backend: Markdown Extraction (`src/news.rs` or new `article.rs`)
+To maintain the project's "zero-API-key" ethos and avoid dragging heavy local HTML parsers/DOM-tree dependencies into the binary, we will leverage the free Jina Reader API (`https://r.jina.ai/`). By prefixing any URL with `https://r.jina.ai/`, it returns a beautifully formatted, ad-free Markdown version of the page content.
+*   **Reqwest Fetch:** Create an async function `fetch_article_markdown(url: &str)` that calls the Jina endpoint and returns the raw text string.
+*   **State Update:** Create a new `AppState` variant to handle the lifecycle:
+    *   `AppState::LoadingArticle`
+    *   `AppState::ReadingArticle { title: String, content: String, scroll: u16 }`
+
+## 2. Input Handling (`src/main.rs` & `src/app.rs`)
+We need to adjust how the News panel responds to keys.
+*   **Enter (Return):** If the News panel is focused, pressing `Enter` kicks off the async fetch and shifts the app state to `LoadingArticle`.
+*   **'o' Key:** Re-map opening the article in the *external browser* to the `o` key, preserving the original functionality for users who want to see images or interact with the site.
+*   **Modal Navigation:** When in `AppState::ReadingArticle`, hijack the event loop so that:
+    *   `j` / `Down` arrow: Increment `scroll` by 1.
+    *   `k` / `Up` arrow: Decrement `scroll` by 1.
+    *   `Esc` / `q`: Return to `AppState::Running`.
+
+## 3. Frontend: Modal Rendering (`src/ui.rs`)
+Ratatui has an excellent `Clear` widget that allows us to draw floating modal windows over existing UI elements.
+*   **Draw Logic:** At the end of `ui::render()`, check if `app.state` is `ReadingArticle` (or `LoadingArticle`). If so, execute a dedicated `render_article_modal()` function.
+*   **Modal Layout:**
+    *   Use `Layout::default()` to create a centered rect (e.g., 80% width, 80% height of the screen).
+    *   Render a `Clear` widget over this rect to erase the background.
+    *   Render a `Block` with `Borders::ALL` and a stylized title (the article headline).
+*   **Content Display:**
+    *   Use the Ratatui `Paragraph` widget.
+    *   Enable `.wrap(Wrap { trim: false })` to keep the markdown readable.
+    *   Apply `.scroll((app.article_scroll, 0))` to allow vertical navigation through the document.
+
+## 4. Execution Steps
+1.  **State Management:** Expand `AppState` enum and add the `article_scroll` tracking logic to `app.rs`.
+2.  **Key Bindings:** Update the `main.rs` event loop to handle `Enter` vs `o` in the News panel, and add the modal escape/scroll bindings.
+3.  **Data Fetcher:** Write the async `fetch_article` helper using `reqwest` and hook it into the main loop via a `tokio::spawn` or similar async channel pattern (similar to how weather/news feeds are fetched).
+4.  **UI Construction:** Build the `Clear` + `Paragraph` modal in `ui.rs`. Test it with dummy text to dial in the borders and wrap behavior, then hook it up to the real fetched markdown.

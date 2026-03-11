@@ -42,6 +42,8 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     match &app.state {
         AppState::LocationSearch => render_location_overlay(frame, app, size),
         AppState::Help => render_help_overlay(frame, app, size),
+        AppState::LoadingArticle => render_loading_article_overlay(frame, app, size),
+        AppState::ReadingArticle { title, content, scroll, .. } => render_article_overlay(frame, app, size, title, content, *scroll),
         _ => {}
     }
 }
@@ -909,4 +911,45 @@ fn centered_rect(max_width: u16, max_height: u16, area: Rect) -> Rect {
     let x = area.x + (area.width.saturating_sub(width)) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
     Rect::new(x, y, width, height)
+}
+
+fn render_loading_article_overlay(frame: &mut Frame, app: &App, size: Rect) {
+    let colors = app.theme.colors();
+    let area = centered_rect(40, 5, size);
+    
+    frame.render_widget(Clear, area);
+    
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.panel_border))
+        .title(" Loading Article ")
+        .title_alignment(Alignment::Center)
+        .style(Style::default().bg(colors.bg.unwrap_or(Color::Reset)));
+    
+    let p = Paragraph::new("Fetching reading view from Jina API...")
+        .alignment(Alignment::Center)
+        .block(block);
+        
+    frame.render_widget(p, area);
+}
+
+fn render_article_overlay(frame: &mut Frame, app: &App, size: Rect, title: &str, content: &str, scroll: u16) {
+    let colors = app.theme.colors();
+    let area = centered_rect(size.width.saturating_mul(8).saturating_div(10), size.height.saturating_mul(8).saturating_div(10), size);
+    
+    frame.render_widget(Clear, area);
+    
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.panel_border))
+        .title(format!(" {} ", title))
+        .title_bottom(" [Esc/Space] Close   [j/k] Scroll   [Enter] Open in Browser ")
+        .style(Style::default().bg(colors.bg.unwrap_or(Color::Reset)));
+    
+    let p = Paragraph::new(content)
+        .wrap(Wrap { trim: false })
+        .scroll((scroll, 0))
+        .block(block);
+        
+    frame.render_widget(p, area);
 }

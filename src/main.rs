@@ -127,6 +127,32 @@ async fn handle_key(
             }
             true
         }
+        AppState::LoadingArticle => {
+            // Ignore inputs while loading
+            true
+        }
+        AppState::ReadingArticle { .. } => {
+            match code {
+                KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char(' ') => app.state = AppState::Running,
+                KeyCode::Char('j') | KeyCode::Down => {
+                    if let AppState::ReadingArticle { scroll: s, title, content, url } = &app.state {
+                        app.state = AppState::ReadingArticle { scroll: s.saturating_add(1), title: title.clone(), content: content.clone(), url: url.clone() };
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Up => {
+                    if let AppState::ReadingArticle { scroll: s, title, content, url } = &app.state {
+                        app.state = AppState::ReadingArticle { scroll: s.saturating_sub(1), title: title.clone(), content: content.clone(), url: url.clone() };
+                    }
+                }
+                KeyCode::Enter => {
+                    if let AppState::ReadingArticle { url, .. } = &app.state {
+                        let _ = browser::open_url(url);
+                    }
+                }
+                _ => {}
+            }
+            true
+        }
         _ => {
             // Normal mode (Running, LoadingWeather, LoadingNews, EditingConfig)
             match code {
@@ -135,10 +161,25 @@ async fn handle_key(
                 KeyCode::BackTab => app.cycle_panels_back(),
                 KeyCode::Char('j') | KeyCode::Down => app.move_down(),
                 KeyCode::Char('k') | KeyCode::Up => app.move_up(),
-                KeyCode::Enter => {
+                KeyCode::Char('o') => {
                     if let Some(url) = app.selected_headline_url() {
                         let url = url.to_string();
                         let _ = browser::open_url(&url);
+                    }
+                }
+                KeyCode::Char(' ') | KeyCode::Enter => {
+                    if app.current_panel == app::PanelId::News {
+                        if let Some((title, url)) = app.selected_headline() {
+                            let title = title.to_string();
+                            let url = url.to_string();
+                            // We need to spawn a background task so we don't block the UI
+                            // But since `app.load_article` is async and takes `&mut app`, 
+                            // we'll set the state to LoadingArticle here, and we need a way to 
+                            // process the request.
+                            // Actually, let's just use `tokio::spawn` here and use an mpsc channel 
+                            // or something. Wait! `handle_key` is async! We can just `await` it.
+                            app.load_article(&url, &title).await;
+                        }
                     }
                 }
                 KeyCode::Char('l' | 'L') => app.cycle_layout(),
